@@ -1,6 +1,8 @@
 import arcade
 import math
 
+# A tower sits on the ground and waits for enemies.
+# It can shoot the bad guys when they get close.
 class Tower(arcade.Sprite):
     def __init__(self, x, y):
         super().__init__("place.png")
@@ -9,6 +11,8 @@ class Tower(arcade.Sprite):
         self.scale = 1
         self.time_since_last_shot = 0.0
 
+# An enemy walks along the path.
+# It has health and can move from one point to the next.
 class Enemy(arcade.Sprite):
     def __init__(self, path_points):
         super().__init__("enemy.png")
@@ -18,6 +22,7 @@ class Enemy(arcade.Sprite):
         self.speed = 120
         self.center_x, self.center_y = path_points[0]
 
+    # Move the enemy a little bit every time the game updates.
     def update(self, delta_time):
         if self.current_target >= len(self.path_points):
             return
@@ -37,23 +42,26 @@ class Enemy(arcade.Sprite):
             self.center_x += dx / distance * move_distance
             self.center_y += dy / distance * move_distance
 
+# A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
     def __init__(self, x, y, dx, dy):
         super().__init__("bullet.png")
         self.center_x = x
         self.center_y = y
-        self.scale = 0.4
+        self.scale = 1
         self.velocity_x = dx
         self.velocity_y = dy
 
+    # Move the bullet in a straight line every frame.
     def update(self, delta_time):
         self.center_x += self.velocity_x * delta_time
         self.center_y += self.velocity_y * delta_time
 
+# This is the main game window where everything happens.
 class TowerDefense(arcade.Window):
 
     def __init__(self):
-        super().__init__(1500,800,("accurate defense simulator"))
+        super().__init__(1500, 800, ("accurate defense simulator"))
 
         arcade.set_background_color(arcade.color.DIRT)
 
@@ -66,6 +74,7 @@ class TowerDefense(arcade.Window):
         self.path_positions = []
         self.spawn_timer = 0.0
 
+        # This is the picture that shows where a tower can go.
         self.preview = arcade.Sprite("place.png")
         self.preview.scale = 1
         self.preview.alpha = 120
@@ -83,6 +92,7 @@ class TowerDefense(arcade.Window):
         self.pathy = 650
         self.money = 500
 
+        # This makes one piece of the path for enemies to walk on.
         def add_path_tile(texture, angle, advance_x, advance_y):
             path = arcade.Sprite(texture)
             path.scale = 2
@@ -93,6 +103,7 @@ class TowerDefense(arcade.Window):
             self.pathx += advance_x
             self.pathy += advance_y
 
+        # Make a straight line of path pieces.
         def Path(repeat, angle2set):
             for _ in range(repeat):
                 if angle2set == 0:
@@ -104,6 +115,7 @@ class TowerDefense(arcade.Window):
                 elif angle2set == 270:
                     add_path_tile("gerade.png", 270, 0, -100)
 
+        # Make a curve piece so the path can turn.
         def Curve(angle, adjustposition):
             advance_x = 0
             advance_y = 0
@@ -117,24 +129,25 @@ class TowerDefense(arcade.Window):
                 advance_y = -100
             add_path_tile("curve.png", angle, advance_x, advance_y)
 
-        Path(4,0)
-        Curve(270,4)
-        Path(2,270)
-        Curve(90,1)
-        Path(4,0)
-        Curve(0,2)
-        Path(3,90)
-        Curve(180,1)
-        Path(1,0)
-        Curve(270,4)
-        Path(6,270)
-        Curve(90,1)
-        Path(1,0)
-        Curve(0,2)
-        Curve(180,1)
-        Path(1,0)
+        Path(4, 0)
+        Curve(270, 4)
+        Path(2, 270)
+        Curve(90, 1)
+        Path(4, 0)
+        Curve(0, 2)
+        Path(3, 90)
+        Curve(180, 1)
+        Path(1, 0)
+        Curve(270, 4)
+        Path(6, 270)
+        Curve(90, 1)
+        Path(1, 0)
+        Curve(0, 2)
+        Curve(180, 1)
+        Path(1, 0)
 
 
+    # Draw all the game pieces on the screen.
     def on_draw(self):
         self.clear()
         self.paths.draw()
@@ -155,13 +168,22 @@ class TowerDefense(arcade.Window):
             self.button.texture = self.button_texture
             self.button.position = (50, 50)
 
-        arcade.draw_text(f"Money: ${self.money}", 10, self.height - 30,
-            arcade.color.LAWN_GREEN, 20, anchor_x="left", anchor_y="bottom")
+        arcade.draw_text(
+            f"Money: ${self.money}",
+            10,
+            self.height - 30,
+            arcade.color.LAWN_GREEN,
+            20,
+            anchor_x="left",
+            anchor_y="bottom",
+        )
 
+    # Move the preview helper with the mouse if we are placing a tower.
     def on_mouse_motion(self, x, y, dx, dy):
         if self.placing_mode:
             self.preview.position = (x, y)
 
+    # When the mouse is clicked, either start/stop placing a tower or place one.
     def on_mouse_press(self, x, y, button, modifiers):
         COIN_SOUND = arcade.load_sound("ksjsbwuil-cash-register-1-513922.mp3")
         if button == arcade.MOUSE_BUTTON_LEFT and self.button.collides_with_point((x, y)):
@@ -186,28 +208,33 @@ class TowerDefense(arcade.Window):
             else:
                 print("Not enough money to place a tower!")
 
+    # Find the closest enemy to a tower so it can shoot the right one.
     def get_nearest_enemy(self, sprite):
         if len(self.enemies) == 0:
             return None
         return min(self.enemies, key=lambda enemy: arcade.get_distance_between_sprites(sprite, enemy))
 
+    # Create a new enemy and send it onto the path.
     def spawn_enemy(self):
         if not self.path_positions:
             return
         enemy = Enemy(self.path_positions)
         self.enemies.append(enemy)
 
+    # Update the whole game. This runs many times every second.
     def on_update(self, delta_time):
         self.spawn_timer += delta_time
         if self.spawn_timer >= 10.0:
             self.spawn_timer -= 10.0
             self.spawn_enemy()
 
+        # Move each enemy and remove it when it reaches the end.
         for enemy in list(self.enemies):
             enemy.update(delta_time)
             if enemy.current_target >= len(enemy.path_points):
                 self.enemies.remove(enemy)
 
+        # Move bullets and remove ones that fly off the screen.
         for bullet in list(self.bullets):
             bullet.update(delta_time)
             if (
@@ -218,6 +245,7 @@ class TowerDefense(arcade.Window):
             ):
                 self.bullets.remove(bullet)
 
+        # Make each tower look for an enemy and shoot if it can.
         for tower in self.towers:
             target = self.get_nearest_enemy(tower)
             if target:
@@ -240,6 +268,7 @@ class TowerDefense(arcade.Window):
                         )
                         self.bullets.append(bullet)
 
+        # If a bullet hits an enemy, make the enemy lose health.
         for bullet in list(self.bullets):
             enemies_hit = arcade.check_for_collision_with_list(bullet, self.enemies)
             for enemy in enemies_hit:

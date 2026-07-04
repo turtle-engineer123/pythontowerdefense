@@ -10,6 +10,7 @@ class Tower(arcade.Sprite):
         self.center_y = y
         self.scale = 1
         self.time_since_last_shot = 0.0
+        self.range = 300
 
 # An enemy walks along the path.
 # It has health and can move from one point to the next.
@@ -230,7 +231,15 @@ class TowerDefense(arcade.Window):
     def get_nearest_enemy(self, sprite):
         if len(self.enemies) == 0:
             return None
-        return min(self.enemies, key=lambda enemy: arcade.get_distance_between_sprites(sprite, enemy))
+        shortest_dist = 800
+        closest_enemy = None
+        for enemy in self.enemies:
+            distance = arcade.get_distance_between_sprites(sprite, enemy)
+            if distance <= sprite.range and shortest_dist > distance:
+                closest_enemy = enemy
+                shortest_dist = distance
+        return closest_enemy
+
 
     # Create a new enemy and send it onto the path.
     def spawn_enemy(self):
@@ -280,7 +289,7 @@ class TowerDefense(arcade.Window):
                     if distance > 0:
                         direction_x = dx / distance
                         direction_y = dy / distance
-                        bullet_speed = 400
+                        bullet_speed = 640
                         bullet = Bullet(
                             tower.center_x,
                             tower.center_y,

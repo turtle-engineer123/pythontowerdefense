@@ -1,5 +1,8 @@
-import arcade
+import arcade #link of the arcade documentation: https://api.arcade.academy/en/latest/index.html
 import math
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # A tower sits on the ground and waits for enemies.
 # It can shoot the bad guys when they get close.
@@ -10,7 +13,7 @@ class Tower(arcade.Sprite):
         self.center_y = y
         self.scale = 1
         self.time_since_last_shot = 0.0
-        self.range = 300
+        self.range = 200
 
 # An enemy walks along the path.
 # It has health and can move from one point to the next.
@@ -43,6 +46,13 @@ class Enemy(arcade.Sprite):
             self.center_x += dx / distance * move_distance
             self.center_y += dy / distance * move_distance
 
+class SpeedyEnemy(Enemy):
+    def __init__(self, path_points):
+        super().__init__(path_points)
+        self.texture = arcade.load_texture("speedy.png")
+        self.health = 5
+        self.speed = 360
+
 # A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
     def __init__(self, x, y, dx, dy):
@@ -74,6 +84,12 @@ class TowerDefense(arcade.Window):
         self.placing_mode = False
         self.path_positions = []
         self.spawn_timer = 0.0
+        self.round_number = 1
+        self.spawned_this_round = 0
+        self.enemies_to_spawn = 0
+        self.round_spawn_interval = 1.5
+        self.transparent_color = (0, 0, 0, 50) #arcade forced me to do this manually because it doesn't support alpha in arcade.draw_circle_filled() for some reason. I don't know why.
+        self.money_given_per_enemy = 50
 
         # This is the picture that shows where a tower can go.
         self.preview = arcade.Sprite("place.png")
@@ -94,6 +110,17 @@ class TowerDefense(arcade.Window):
         self.money = 500
         self.reset_game()
 
+    def calculate_round_enemy_count(self):
+        return 3 + self.round_number * 2
+
+    def start_round(self):
+        self.spawned_this_round = 0
+        self.enemies_to_spawn = self.calculate_round_enemy_count()
+        self.spawn_timer = 0.0
+        self.round_spawn_interval = max(0.1, 1.5 - (self.round_number - 1) * 0.15)
+        self.money_given_per_enemy = max(10, 50 - (self.round_number - 1) * 5)
+
+
     def reset_game(self):
         self.paths = arcade.SpriteList()
         self.towers = arcade.SpriteList()
@@ -103,9 +130,12 @@ class TowerDefense(arcade.Window):
         self.spawn_timer = 0.0
         self.path_positions = []
         self.money = 500
+        self.round_number = 1
         self.preview.position = (0, 0)
         self.pathx = 50
         self.pathy = 650
+        self.money_given_per_enemy = 50
+        self.start_round()
 
         # This makes one piece of the path for enemies to walk on.
         def add_path_tile(texture, angle, advance_x, advance_y):
@@ -171,6 +201,7 @@ class TowerDefense(arcade.Window):
         self.towers.draw()
         self.buttons.draw()
 
+        #totally not copying the ui from bloons tower defense lol
         if self.placing_mode:
             self.button.texture = self.button_exit_texture
             self.button.position = (50, 50)
@@ -181,10 +212,10 @@ class TowerDefense(arcade.Window):
             else:
                 self.preview.color = arcade.color.WHITE
             arcade.draw_sprite(self.preview)
+            arcade.draw_circle_filled(self.preview.center_x, self.preview.center_y, 200, self.transparent_color)
         else:
             self.button.texture = self.button_texture
             self.button.position = (50, 50)
-
         arcade.draw_text(
             f"Money: ${self.money}",
             10,
@@ -192,6 +223,15 @@ class TowerDefense(arcade.Window):
             arcade.color.LAWN_GREEN,
             20,
             anchor_x="left",
+            anchor_y="bottom",
+        )
+        arcade.draw_text(
+            f"Round: {self.round_number}",
+            self.width // 2,
+            self.height - 60,
+            arcade.color.WHITE_SMOKE,
+            30,
+            anchor_x="center",
             anchor_y="bottom",
         )
 
@@ -231,7 +271,7 @@ class TowerDefense(arcade.Window):
     def get_nearest_enemy(self, sprite):
         if len(self.enemies) == 0:
             return None
-        shortest_dist = 800
+        shortest_dist = 201
         closest_enemy = None
         for enemy in self.enemies:
             distance = arcade.get_distance_between_sprites(sprite, enemy)
@@ -245,15 +285,27 @@ class TowerDefense(arcade.Window):
     def spawn_enemy(self):
         if not self.path_positions:
             return
-        enemy = Enemy(self.path_positions)
+        if self.round_number >= 5 and self.spawned_this_round % 4 == 0:
+            enemy = SpeedyEnemy(self.path_positions)
+        else:
+            enemy = Enemy(self.path_positions)
+        # Scale enemy health with the current round (makes later rounds harder)
+        # Each round adds 2 health to enemies (round 1 -> +0, round 2 -> +2, ...)
+        health_scale = (self.round_number - 1) * 2
+        enemy.health = max(1, int(enemy.health + health_scale))
         self.enemies.append(enemy)
+        self.spawned_this_round += 1
 
     # Update the whole game. This runs many times every second.
     def on_update(self, delta_time):
         self.spawn_timer += delta_time
-        if self.spawn_timer >= 10.0:
-            self.spawn_timer -= 10.0
+        if self.spawned_this_round < self.enemies_to_spawn and self.spawn_timer >= self.round_spawn_interval:
+            self.spawn_timer -= self.round_spawn_interval
             self.spawn_enemy()
+
+        if self.spawned_this_round >= self.enemies_to_spawn and len(self.enemies) == 0:
+            self.round_number += 1
+            self.start_round()
 
         # Move each enemy and remove it when it reaches the end.
         for enemy in list(self.enemies):
@@ -284,7 +336,7 @@ class TowerDefense(arcade.Window):
                 tower.angle = angle % 360
                 tower.time_since_last_shot += delta_time
                 if tower.time_since_last_shot >= 0.5:
-                    tower.time_since_last_shot -= 0.5
+                    tower.time_since_last_shot -= 0.5 
                     distance = math.hypot(dx, dy)
                     if distance > 0:
                         direction_x = dx / distance
@@ -307,7 +359,7 @@ class TowerDefense(arcade.Window):
                 enemy.health -= 1
                 if enemy.health <= 0 and enemy in self.enemies:
                     self.enemies.remove(enemy)
-                    self.money += 100
+                    self.money += self.money_given_per_enemy
                 break
 
 TowerDefense()

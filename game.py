@@ -25,10 +25,28 @@ class Enemy(arcade.Sprite):
         self.health = 5
         self.speed = 180
         self.center_x, self.center_y = path_points[0]
+        self.distance_to_goal = self.get_distance_to_goal()
+
+    def get_distance_to_goal(self):
+        if self.current_target >= len(self.path_points):
+            return 0
+
+        remaining_distance = math.hypot(
+            self.path_points[self.current_target][0] - self.center_x,
+            self.path_points[self.current_target][1] - self.center_y,
+        )
+
+        for index in range(self.current_target, len(self.path_points) - 1):
+            start_x, start_y = self.path_points[index]
+            end_x, end_y = self.path_points[index + 1]
+            remaining_distance += math.hypot(end_x - start_x, end_y - start_y)
+
+        return remaining_distance
 
     # Move the enemy a little bit every time the game updates.
     def update(self, delta_time):
         if self.current_target >= len(self.path_points):
+            self.distance_to_goal = 0
             return
         target_x, target_y = self.path_points[self.current_target]
         dx = target_x - self.center_x
@@ -46,12 +64,15 @@ class Enemy(arcade.Sprite):
             self.center_x += dx / distance * move_distance
             self.center_y += dy / distance * move_distance
 
+        self.distance_to_goal = self.get_distance_to_goal()
+
 class SpeedyEnemy(Enemy):
     def __init__(self, path_points):
         super().__init__(path_points)
         self.texture = arcade.load_texture("speedy.png")
-        self.health = 5
-        self.speed = 360
+        self.health = 3
+        self.speed = 270
+        self.distance_to_goal = 3100
 
 # A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
@@ -189,7 +210,7 @@ class TowerDefense(arcade.Window):
         Path(1, 0)
         Curve(0, 2)
         Curve(180, 1)
-        Path(1, 0)
+        Path(2, 0)
 
 
     # Draw all the game pieces on the screen.
@@ -267,17 +288,36 @@ class TowerDefense(arcade.Window):
             else:
                 print("Not enough money to place a tower!")
 
-    # Find the closest enemy to a tower so it can shoot the right one.
+    # Find the enemy in range that is closest to the goal.
     def get_nearest_enemy(self, sprite):
         if len(self.enemies) == 0:
             return None
-        shortest_dist = 201
+
         closest_enemy = None
+        closest_goal_distance = None
+        closest_tower_distance = None
+
         for enemy in self.enemies:
-            distance = arcade.get_distance_between_sprites(sprite, enemy)
-            if distance <= sprite.range and shortest_dist > distance:
+            tower_distance = arcade.get_distance_between_sprites(sprite, enemy)
+            if tower_distance > sprite.range:
+                continue
+
+            goal_distance = enemy.distance_to_goal
+            if closest_enemy is None:
                 closest_enemy = enemy
-                shortest_dist = distance
+                closest_goal_distance = goal_distance
+                closest_tower_distance = tower_distance
+            elif (
+                goal_distance < closest_goal_distance
+                or (
+                    goal_distance == closest_goal_distance
+                    and tower_distance < closest_tower_distance
+                )
+            ):
+                closest_enemy = enemy
+                closest_goal_distance = goal_distance
+                closest_tower_distance = tower_distance
+
         return closest_enemy
 
 
@@ -285,14 +325,14 @@ class TowerDefense(arcade.Window):
     def spawn_enemy(self):
         if not self.path_positions:
             return
-        if self.round_number >= 5 and self.spawned_this_round % 4 == 0:
+        if self.round_number >= 5 and self.spawned_this_round % 5 == 0:
             enemy = SpeedyEnemy(self.path_positions)
         else:
             enemy = Enemy(self.path_positions)
         # Scale enemy health with the current round (makes later rounds harder)
-        # Each round adds 2 health to enemies (round 1 -> +0, round 2 -> +2, ...)
-        health_scale = (self.round_number - 1) * 2
-        enemy.health = max(1, int(enemy.health + health_scale))
+        if self.round_number >= 5:
+            health_scale = (self.round_number - 5)
+            enemy.health = max(1, int(enemy.health + health_scale))
         self.enemies.append(enemy)
         self.spawned_this_round += 1
 

@@ -13,7 +13,28 @@ class Tower(arcade.Sprite):
         self.center_y = y
         self.scale = 1
         self.time_since_last_shot = 0.0
+        self.upgrade_level = 0
+        self.upgrade_costs = [250, 500, 1000]
         self.range = 200
+        self.shoot_interval = 0.5
+        self.texture_files = ["place.png", "place-1.png", "place-2.png", "place-3.png"]
+
+    def get_upgrade_cost(self):
+        if self.upgrade_level >= len(self.upgrade_costs):
+            return None
+        return self.upgrade_costs[self.upgrade_level]
+
+    def can_upgrade(self):
+        return self.get_upgrade_cost() is not None
+
+    def apply_upgrade(self):
+        if not self.can_upgrade():
+            return False
+        self.upgrade_level += 1
+        self.texture = arcade.load_texture(self.texture_files[self.upgrade_level])
+        self.range = 200 + self.upgrade_level * 60
+        self.shoot_interval = max(0.2, 0.5 - (self.upgrade_level - 1) * 0.1)
+        return True
 
 # An enemy walks along the path.
 # It has health and can move from one point to the next.
@@ -74,6 +95,15 @@ class SpeedyEnemy(Enemy):
         self.speed = 270
         self.distance_to_goal = 3100
 
+
+class TankEnemy(Enemy):
+    def __init__(self, path_points):
+        super().__init__(path_points)
+        self.texture = arcade.load_texture("tank.png")
+        self.health = 10
+        self.speed = 90
+        self.distance_to_goal = 3100
+
 # A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
     def __init__(self, x, y, dx, dy):
@@ -93,7 +123,7 @@ class Bullet(arcade.Sprite):
 class TowerDefense(arcade.Window):
 
     def __init__(self):
-        super().__init__(1500, 800, ("accurate defense simulator"))
+        super().__init__(1500, 800, ("Circle vs Square TD"))
 
         arcade.set_background_color(arcade.color.DIRT)
 
@@ -110,7 +140,11 @@ class TowerDefense(arcade.Window):
         self.enemies_to_spawn = 0
         self.round_spawn_interval = 1.5
         self.transparent_color = (0, 0, 0, 50) #arcade forced me to do this manually because it doesn't support alpha in arcade.draw_circle_filled() for some reason. I don't know why.
+        self.hovered_tower = None
         self.money_given_per_enemy = 50
+        self.upgrade_mode = False
+        self.selected_tower = None
+        self.upgrade_menu_open = False
 
         # This is the picture that shows where a tower can go.
         self.preview = arcade.Sprite("place.png")
@@ -139,7 +173,10 @@ class TowerDefense(arcade.Window):
         self.enemies_to_spawn = self.calculate_round_enemy_count()
         self.spawn_timer = 0.0
         self.round_spawn_interval = max(0.1, 1.5 - (self.round_number - 1) * 0.15)
-        self.money_given_per_enemy = max(10, 50 - (self.round_number - 1) * 5)
+        if self.round_number >= 5:
+            self.money_given_per_enemy = max(10, 50 - (self.round_number - 5) * 2)
+
+
 
 
     def reset_game(self):
@@ -156,6 +193,10 @@ class TowerDefense(arcade.Window):
         self.pathx = 50
         self.pathy = 650
         self.money_given_per_enemy = 50
+        self.upgrade_mode = False
+        self.selected_tower = None
+        self.upgrade_menu_open = False
+        self.hovered_tower = None
         self.start_round()
 
         # This makes one piece of the path for enemies to walk on.
@@ -212,6 +253,19 @@ class TowerDefense(arcade.Window):
         Curve(180, 1)
         Path(2, 0)
 
+    def get_upgrade_menu_bounds(self):
+        if self.selected_tower and self.selected_tower.center_x > self.width / 2:
+            return 20, 320, 320, 620
+        return self.width - 320, self.width - 20, 320, 620
+
+    def get_upgrade_button_rect(self):
+        if self.selected_tower and self.selected_tower.center_x > self.width / 2:
+            return 20, 180, 260, 80
+        return self.width - 280, 180, 260, 80
+
+    def is_click_on_upgrade_button(self, x, y):
+        left, bottom, width, height = self.get_upgrade_button_rect()
+        return left <= x <= left + width and bottom <= y <= bottom + height
 
     # Draw all the game pieces on the screen.
     def on_draw(self):
@@ -221,6 +275,10 @@ class TowerDefense(arcade.Window):
         self.bullets.draw()
         self.towers.draw()
         self.buttons.draw()
+
+        if self.hovered_tower:
+            if not self.upgrade_menu_open:
+                arcade.draw_circle_filled(self.hovered_tower.center_x, self.hovered_tower.center_y, 40, self.transparent_color)
 
         #totally not copying the ui from bloons tower defense lol
         if self.placing_mode:
@@ -246,6 +304,83 @@ class TowerDefense(arcade.Window):
             anchor_x="left",
             anchor_y="bottom",
         )
+
+        if self.upgrade_menu_open and self.selected_tower:
+            left, right, bottom, top = self.get_upgrade_menu_bounds()
+            arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, (30, 30, 35, 220))
+            arcade.draw_circle_filled(self.selected_tower.center_x, self.selected_tower.center_y, self.selected_tower.range, self.transparent_color)
+            arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.WHITE, 2)
+            arcade.draw_text(
+                "Tower Upgrade",
+                (left + right) // 2,
+                top - 40,
+                arcade.color.WHITE_SMOKE,
+                24,
+                anchor_x="center",
+                anchor_y="bottom",
+            )
+            arcade.draw_text(
+                f"Upgrade Level: {self.selected_tower.upgrade_level + 1}/4",
+                left + 20,
+                top - 90,
+                arcade.color.WHITE_SMOKE,
+                20,
+                anchor_x="left",
+                anchor_y="bottom",
+            )
+            if self.selected_tower.can_upgrade():
+                cost = self.selected_tower.get_upgrade_cost()
+                color = arcade.color.LAWN_GREEN if self.money >= cost else arcade.color.RED
+                arcade.draw_text(
+                    f"Next Upgrade Cost: ${cost}",
+                    left + 20,
+                    top - 170,
+                    color,
+                    20,
+                    anchor_x="left",
+                    anchor_y="bottom",
+                    multiline=True,
+                    width = right - left - 40
+                )
+                arcade.draw_text(
+                    "Faster shots and a larger range",
+                    left + 20,
+                    top - 230,
+                    arcade.color.LIGHT_BLUE,
+                    18,
+                    anchor_x="left",
+                    anchor_y="bottom",
+                    multiline=True,
+                    width = right - left - 40
+                )
+            else:
+                arcade.draw_text(
+                    "Fully upgraded",
+                    left + 20,
+                    top - 130,
+                    arcade.color.GOLD,
+                    20,
+                    anchor_x="left",
+                    anchor_y="bottom",
+                )
+
+            button_left, button_bottom, button_width, button_height = self.get_upgrade_button_rect()
+            button_color = arcade.color.GRAY
+            label = "Maxed"
+            if self.selected_tower.can_upgrade():
+                button_color = arcade.color.GREEN if self.money >= self.selected_tower.get_upgrade_cost() else arcade.color.DARK_GREEN
+                label = "Upgrade"
+            arcade.draw_lrbt_rectangle_filled(button_left, button_left + button_width, button_bottom, button_bottom + button_height, button_color)
+            arcade.draw_lrbt_rectangle_outline(button_left, button_left + button_width, button_bottom, button_bottom + button_height, arcade.color.WHITE, 2)
+            arcade.draw_text(
+                label,
+                button_left + button_width // 2,
+                button_bottom + 40,
+                arcade.color.WHITE_SMOKE,
+                20,
+                anchor_x="center",
+                anchor_y="center",
+            )
         arcade.draw_text(
             f"Round: {self.round_number}",
             self.width // 2,
@@ -253,7 +388,7 @@ class TowerDefense(arcade.Window):
             arcade.color.WHITE_SMOKE,
             30,
             anchor_x="center",
-            anchor_y="bottom",
+            anchor_y="center",
         )
 
     # Move the preview helper with the mouse if we are placing a tower.
@@ -261,16 +396,47 @@ class TowerDefense(arcade.Window):
         if self.placing_mode:
             self.preview.position = (x, y)
 
+        self.hovered_tower = None
+        for tower in self.towers:
+            if tower.collides_with_point((x, y)):
+                self.hovered_tower = tower
+                break
+
     # When the mouse is clicked, either start/stop placing a tower or place one.
     def on_mouse_press(self, x, y, button, modifiers):
         COIN_SOUND = arcade.load_sound("ksjsbwuil-cash-register-1-513922.mp3")
         if button == arcade.MOUSE_BUTTON_LEFT and self.button.collides_with_point((x, y)):
             self.placing_mode = not self.placing_mode
+            self.upgrade_menu_open = False
+            self.selected_tower = None
             if self.placing_mode:
                 self.preview.position = (x, y)
             return
 
+        if button == arcade.MOUSE_BUTTON_LEFT and self.upgrade_menu_open and self.selected_tower and self.is_click_on_upgrade_button(x, y):
+            if self.selected_tower.can_upgrade():
+                cost = self.selected_tower.get_upgrade_cost()
+                if self.money >= cost:
+                    self.money -= cost
+                    self.selected_tower.apply_upgrade()
+                    self.coin_playback = COIN_SOUND.play()
+                else:
+                    print("Not enough money to upgrade the tower!")
+            return
+
         if not self.placing_mode:
+            if button == arcade.MOUSE_BUTTON_LEFT:
+                selected_tower = None
+                for tower in self.towers:
+                    if tower.collides_with_point((x, y)):
+                        selected_tower = tower
+                        break
+                if selected_tower is not None:
+                    self.selected_tower = selected_tower
+                    self.upgrade_menu_open = True
+                else:
+                    self.selected_tower = None
+                    self.upgrade_menu_open = False
             return
 
         if button == arcade.MOUSE_BUTTON_LEFT:
@@ -325,13 +491,15 @@ class TowerDefense(arcade.Window):
     def spawn_enemy(self):
         if not self.path_positions:
             return
-        if self.round_number >= 5 and self.spawned_this_round % 5 == 0:
+        if self.round_number >= 10 and self.spawned_this_round % 7 == 0:
+            enemy = TankEnemy(self.path_positions)
+        elif self.round_number >= 5 and self.spawned_this_round % 5 == 0:
             enemy = SpeedyEnemy(self.path_positions)
         else:
             enemy = Enemy(self.path_positions)
         # Scale enemy health with the current round (makes later rounds harder)
-        if self.round_number >= 5:
-            health_scale = (self.round_number - 5)
+        if self.round_number >= 10:
+            health_scale = (self.round_number - 10)
             enemy.health = max(1, int(enemy.health + health_scale))
         self.enemies.append(enemy)
         self.spawned_this_round += 1
@@ -375,8 +543,8 @@ class TowerDefense(arcade.Window):
                 angle = 270 - math.degrees(math.atan2(dy, dx))
                 tower.angle = angle % 360
                 tower.time_since_last_shot += delta_time
-                if tower.time_since_last_shot >= 0.5:
-                    tower.time_since_last_shot -= 0.5 
+                if tower.time_since_last_shot >= tower.shoot_interval:
+                    tower.time_since_last_shot -= tower.shoot_interval
                     distance = math.hypot(dx, dy)
                     if distance > 0:
                         direction_x = dx / distance
@@ -402,6 +570,10 @@ class TowerDefense(arcade.Window):
                     self.money += self.money_given_per_enemy
                 break
 
-TowerDefense()
+def main():
+    TowerDefense()
+    arcade.run()
 
-arcade.run()
+
+if __name__ == "__main__":
+    main()

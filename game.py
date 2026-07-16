@@ -7,17 +7,33 @@ warnings.filterwarnings("ignore")
 # A tower sits on the ground and waits for enemies.
 # It can shoot the bad guys when they get close.
 class Tower(arcade.Sprite):
-    def __init__(self, x, y):
-        super().__init__("place.png")
+    def __init__(self, x, y, tower_type="basic"):
+        self.tower_type = tower_type
+        if tower_type == "cannon":
+            initial_texture = "cannon-1.png"
+            self.texture_files = ["cannon-1.png", "cannon-2.png", "cannon-3.png", "cannon-4.png"]
+            self.upgrade_costs = [600, 1000, 1500]
+            self.purchase_cost = 400
+            self.range = 220
+            self.shoot_interval = 1.5
+            self.damage = 5
+        else:
+            initial_texture = "place.png"
+            self.texture_files = ["place.png", "place-1.png", "place-2.png", "place-3.png"]
+            self.upgrade_costs = [250, 500, 1000]
+            self.purchase_cost = 250
+            self.range = 200
+            self.shoot_interval = 0.5
+            self.damage = 1
+
+        super().__init__(initial_texture)
         self.center_x = x
         self.center_y = y
         self.scale = 1
         self.time_since_last_shot = 0.0
         self.upgrade_level = 0
-        self.upgrade_costs = [250, 500, 1000]
-        self.range = 200
-        self.shoot_interval = 0.5
-        self.texture_files = ["place.png", "place-1.png", "place-2.png", "place-3.png"]
+        self.total_spent = self.purchase_cost
+        self.texture = arcade.load_texture(self.texture_files[0])
 
     def get_upgrade_cost(self):
         if self.upgrade_level >= len(self.upgrade_costs):
@@ -27,13 +43,24 @@ class Tower(arcade.Sprite):
     def can_upgrade(self):
         return self.get_upgrade_cost() is not None
 
+    def get_sell_value(self):
+        return int(self.total_spent * 0.5)
+
     def apply_upgrade(self):
         if not self.can_upgrade():
             return False
+        cost = self.get_upgrade_cost()
         self.upgrade_level += 1
-        self.texture = arcade.load_texture(self.texture_files[self.upgrade_level])
-        self.range = 200 + self.upgrade_level * 60
-        self.shoot_interval = max(0.2, 0.5 - (self.upgrade_level - 1) * 0.1)
+        self.texture = arcade.load_texture(self.texture_files[min(self.upgrade_level, len(self.texture_files) - 1)])
+        if self.tower_type == "cannon":
+            self.range += 40
+            self.damage += 2
+            self.shoot_interval -= 0.25
+        else:
+            self.range = 200 + self.upgrade_level * 60
+            self.shoot_interval = max(0.2, 0.5 - (self.upgrade_level - 1) * 0.1)
+            self.damage += 1
+        self.total_spent += cost
         return True
 
 # An enemy walks along the path.
@@ -106,13 +133,14 @@ class TankEnemy(Enemy):
 
 # A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
-    def __init__(self, x, y, dx, dy):
+    def __init__(self, x, y, dx, dy, damage):
         super().__init__("bullet.png")
         self.center_x = x
         self.center_y = y
         self.scale = 1
         self.velocity_x = dx
         self.velocity_y = dy
+        self.damage = damage
 
     # Move the bullet in a straight line every frame.
     def update(self, delta_time):
@@ -145,6 +173,7 @@ class TowerDefense(arcade.Window):
         self.upgrade_mode = False
         self.selected_tower = None
         self.upgrade_menu_open = False
+        self.game_state = "menu"
 
         # This is the picture that shows where a tower can go.
         self.preview = arcade.Sprite("place.png")
@@ -155,10 +184,15 @@ class TowerDefense(arcade.Window):
 
         self.button_texture = arcade.load_texture("mutton.png")
         self.button_exit_texture = arcade.load_texture("exit.png")
+        self.cannon_button_texture = arcade.load_texture("cannon-button.png")
         self.button = arcade.Sprite("mutton.png")
         self.button.scale = 1
         self.button.position = (50, 50)
+        self.cannon_button = arcade.Sprite("cannon-button.png")
+        self.cannon_button.scale = 1
+        self.cannon_button.position = (150, 50)
         self.buttons.append(self.button)
+        self.buttons.append(self.cannon_button)
 
         self.pathx = 50
         self.pathy = 650
@@ -190,6 +224,7 @@ class TowerDefense(arcade.Window):
         self.money = 500
         self.round_number = 1
         self.preview.position = (0, 0)
+        self.placing_tower_type = "basic"
         self.pathx = 50
         self.pathy = 650
         self.money_given_per_enemy = 50
@@ -258,18 +293,84 @@ class TowerDefense(arcade.Window):
             return 20, 320, 320, 620
         return self.width - 320, self.width - 20, 320, 620
 
+    def set_preview_for_tower_type(self, tower_type):
+        self.placing_tower_type = tower_type
+        if tower_type == "cannon":
+            self.preview.texture = arcade.load_texture("cannon-1.png")
+        else:
+            self.preview.texture = arcade.load_texture("place.png")
+
     def get_upgrade_button_rect(self):
         if self.selected_tower and self.selected_tower.center_x > self.width / 2:
             return 20, 180, 260, 80
         return self.width - 280, 180, 260, 80
 
+    def get_sell_button_rect(self):
+        if self.selected_tower and self.selected_tower.center_x > self.width / 2:
+            return 20, 80, 260, 80
+        return self.width - 280, 80, 260, 80
+
+    def get_menu_button_rect(self):
+        button_width = 360
+        button_height = 100
+        left = (self.width - button_width) / 2
+        bottom = (self.height - button_height) / 2 - 40
+        return left, bottom, button_width, button_height
+
     def is_click_on_upgrade_button(self, x, y):
         left, bottom, width, height = self.get_upgrade_button_rect()
+        return left <= x <= left + width and bottom <= y <= bottom + height
+
+    def is_click_on_sell_button(self, x, y):
+        left, bottom, width, height = self.get_sell_button_rect()
         return left <= x <= left + width and bottom <= y <= bottom + height
 
     # Draw all the game pieces on the screen.
     def on_draw(self):
         self.clear()
+
+        if self.game_state == "menu":
+            arcade.draw_text(
+                "Circle vs Square TD",
+                self.width / 2,
+                self.height * 0.72,
+                arcade.color.WHITE,
+                64,
+                anchor_x="center",
+                anchor_y="center",
+            )
+            arcade.draw_text(
+                "Defend the path with towers and survive the rounds!",
+                self.width / 2,
+                self.height * 0.62,
+                arcade.color.LIGHT_GRAY,
+                24,
+                anchor_x="center",
+                anchor_y="center",
+            )
+            left, bottom, width, height = self.get_menu_button_rect()
+            arcade.draw_lrbt_rectangle_filled(left, left + width, bottom, bottom + height, arcade.color.DARK_BLUE)
+            arcade.draw_lrbt_rectangle_outline(left, left + width, bottom, bottom + height, arcade.color.WHITE, 3)
+            arcade.draw_text(
+                "Start Game",
+                self.width / 2,
+                bottom + height / 2,
+                arcade.color.WHITE,
+                30,
+                anchor_x="center",
+                anchor_y="center",
+            )
+            arcade.draw_text(
+                "Click the button or press space to begin.",
+                self.width / 2,
+                bottom - 40,
+                arcade.color.LIGHT_GRAY,
+                18,
+                anchor_x="center",
+                anchor_y="center",
+            )
+            return
+
         self.paths.draw()
         self.enemies.draw()
         self.bullets.draw()
@@ -282,19 +383,24 @@ class TowerDefense(arcade.Window):
 
         #totally not copying the ui from bloons tower defense lol
         if self.placing_mode:
-            self.button.texture = self.button_exit_texture
-            self.button.position = (50, 50)
-            if arcade.check_for_collision_with_list(self.preview, self.paths) or self.money < 250:
+            self.button.texture = self.button_exit_texture if self.placing_tower_type == "basic" else self.button_texture
+            self.cannon_button.texture = self.button_exit_texture if self.placing_tower_type == "cannon" else self.cannon_button_texture
+            self.button.position = (75, 75)
+            self.cannon_button.position = (225, 75)
+            tower_cost = 400 if self.placing_tower_type == "cannon" else 250
+            if arcade.check_for_collision_with_list(self.preview, self.paths) or self.money < tower_cost:
                 self.preview.color = arcade.color.RED
             elif arcade.check_for_collision_with_list(self.preview, self.towers):
                 self.preview.color = arcade.color.RED
             else:
                 self.preview.color = arcade.color.WHITE
             arcade.draw_sprite(self.preview)
-            arcade.draw_circle_filled(self.preview.center_x, self.preview.center_y, 200, self.transparent_color)
+            arcade.draw_circle_filled(self.preview.center_x, self.preview.center_y, 220 if self.placing_tower_type == "cannon" else 200, self.transparent_color)
         else:
             self.button.texture = self.button_texture
-            self.button.position = (50, 50)
+            self.cannon_button.texture = self.cannon_button_texture
+            self.button.position = (75, 75)
+            self.cannon_button.position = (225, 75)
         arcade.draw_text(
             f"Money: ${self.money}",
             10,
@@ -342,17 +448,6 @@ class TowerDefense(arcade.Window):
                     multiline=True,
                     width = right - left - 40
                 )
-                arcade.draw_text(
-                    "Faster shots and a larger range",
-                    left + 20,
-                    top - 230,
-                    arcade.color.LIGHT_BLUE,
-                    18,
-                    anchor_x="left",
-                    anchor_y="bottom",
-                    multiline=True,
-                    width = right - left - 40
-                )
             else:
                 arcade.draw_text(
                     "Fully upgraded",
@@ -381,6 +476,28 @@ class TowerDefense(arcade.Window):
                 anchor_x="center",
                 anchor_y="center",
             )
+
+            sell_left, sell_bottom, sell_width, sell_height = self.get_sell_button_rect()
+            arcade.draw_lrbt_rectangle_filled(sell_left, sell_left + sell_width, sell_bottom, sell_bottom + sell_height, arcade.color.RED)
+            arcade.draw_lrbt_rectangle_outline(sell_left, sell_left + sell_width, sell_bottom, sell_bottom + sell_height, arcade.color.WHITE, 2)
+            arcade.draw_text(
+                "Sell",
+                sell_left + sell_width // 2,
+                sell_bottom + 50,
+                arcade.color.WHITE_SMOKE,
+                20,
+                anchor_x="center",
+                anchor_y="center",
+            )
+            arcade.draw_text(
+                f"Sell for: ${self.selected_tower.get_sell_value()}",
+                sell_left + sell_width // 2,
+                sell_bottom + 7,
+                arcade.color.WHITE_SMOKE,
+                15,
+                anchor_x="center",
+                anchor_y="bottom",
+            )
         arcade.draw_text(
             f"Round: {self.round_number}",
             self.width // 2,
@@ -404,11 +521,29 @@ class TowerDefense(arcade.Window):
 
     # When the mouse is clicked, either start/stop placing a tower or place one.
     def on_mouse_press(self, x, y, button, modifiers):
+        if self.game_state == "menu":
+            if button == arcade.MOUSE_BUTTON_LEFT:
+                left, bottom, width, height = self.get_menu_button_rect()
+                if left <= x <= left + width and bottom <= y <= bottom + height:
+                    self.reset_game()
+                    self.game_state = "playing"
+            return
+
         COIN_SOUND = arcade.load_sound("ksjsbwuil-cash-register-1-513922.mp3")
         if button == arcade.MOUSE_BUTTON_LEFT and self.button.collides_with_point((x, y)):
-            self.placing_mode = not self.placing_mode
+            self.placing_mode = not (self.placing_mode and self.placing_tower_type == "basic")
             self.upgrade_menu_open = False
             self.selected_tower = None
+            self.set_preview_for_tower_type("basic")
+            if self.placing_mode:
+                self.preview.position = (x, y)
+            return
+
+        if button == arcade.MOUSE_BUTTON_LEFT and self.cannon_button.collides_with_point((x, y)):
+            self.placing_mode = not (self.placing_mode and self.placing_tower_type == "cannon")
+            self.upgrade_menu_open = False
+            self.selected_tower = None
+            self.set_preview_for_tower_type("cannon")
             if self.placing_mode:
                 self.preview.position = (x, y)
             return
@@ -421,7 +556,17 @@ class TowerDefense(arcade.Window):
                     self.selected_tower.apply_upgrade()
                     self.coin_playback = COIN_SOUND.play()
                 else:
-                    print("Not enough money to upgrade the tower!")
+                    pass
+            return
+
+        if button == arcade.MOUSE_BUTTON_LEFT and self.upgrade_menu_open and self.selected_tower and self.is_click_on_sell_button(x, y):
+            sell_value = self.selected_tower.get_sell_value()
+            self.money += sell_value
+            self.towers.remove(self.selected_tower)
+            self.selected_tower = None
+            self.upgrade_menu_open = False
+            self.hovered_tower = None
+            self.coin_playback = COIN_SOUND.play()
             return
 
         if not self.placing_mode:
@@ -440,19 +585,26 @@ class TowerDefense(arcade.Window):
             return
 
         if button == arcade.MOUSE_BUTTON_LEFT:
-            if self.money >= 250:
-                tower = Tower(x, y)
+            tower_cost = 400 if self.placing_tower_type == "cannon" else 250
+            if self.money >= tower_cost:
+                tower = Tower(x, y, tower_type=self.placing_tower_type)
                 if arcade.check_for_collision_with_list(tower, self.paths):
-                    print("You can't place a tower on the path!")
+                    pass
                 elif arcade.check_for_collision_with_list(tower, self.towers):
-                    print("You can't place a tower on top of another tower!")
+                    pass
                 else:
                     self.towers.append(tower)
-                    self.money -= 250
+                    self.money -= tower_cost
                     self.coin_playback = COIN_SOUND.play()
-                    self.placing_mode = not self.placing_mode
+                    self.placing_mode = False
             else:
-                print("Not enough money to place a tower!")
+                pass
+
+    def on_key_press(self, key, modifiers):
+        if self.game_state == "menu":
+            if key == arcade.key.SPACE or key == arcade.key.ENTER:
+                self.reset_game()
+                self.game_state = "playing"
 
     # Find the enemy in range that is closest to the goal.
     def get_nearest_enemy(self, sprite):
@@ -506,6 +658,9 @@ class TowerDefense(arcade.Window):
 
     # Update the whole game. This runs many times every second.
     def on_update(self, delta_time):
+        if self.game_state == "menu":
+            return
+
         self.spawn_timer += delta_time
         if self.spawned_this_round < self.enemies_to_spawn and self.spawn_timer >= self.round_spawn_interval:
             self.spawn_timer -= self.round_spawn_interval
@@ -555,6 +710,7 @@ class TowerDefense(arcade.Window):
                             tower.center_y,
                             direction_x * bullet_speed,
                             direction_y * bullet_speed,
+                            tower.damage,
                         )
                         self.bullets.append(bullet)
 
@@ -564,7 +720,7 @@ class TowerDefense(arcade.Window):
             for enemy in enemies_hit:
                 if bullet in self.bullets:
                     self.bullets.remove(bullet)
-                enemy.health -= 1
+                enemy.health -= bullet.damage
                 if enemy.health <= 0 and enemy in self.enemies:
                     self.enemies.remove(enemy)
                     self.money += self.money_given_per_enemy

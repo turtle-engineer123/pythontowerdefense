@@ -1,5 +1,7 @@
 import arcade #link of the arcade documentation: https://api.arcade.academy/en/latest/index.html
 import math
+import os
+import platform
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -29,7 +31,10 @@ class Tower(arcade.Sprite):
         super().__init__(initial_texture)
         self.center_x = x
         self.center_y = y
-        self.scale = 1
+        if tower_type == "cannon":
+            self.scale = 1.25
+        else:
+            self.scale = 1
         self.time_since_last_shot = 0.0
         self.upgrade_level = 0
         self.total_spent = self.purchase_cost
@@ -53,9 +58,9 @@ class Tower(arcade.Sprite):
         self.upgrade_level += 1
         self.texture = arcade.load_texture(self.texture_files[min(self.upgrade_level, len(self.texture_files) - 1)])
         if self.tower_type == "cannon":
-            self.range += 40
+            self.range += 30
             self.damage += 2
-            self.shoot_interval -= 0.25
+            self.shoot_interval -= 0.125
         else:
             self.range = 200 + self.upgrade_level * 60
             self.shoot_interval = max(0.2, 0.5 - (self.upgrade_level - 1) * 0.1)
@@ -127,17 +132,17 @@ class TankEnemy(Enemy):
     def __init__(self, path_points):
         super().__init__(path_points)
         self.texture = arcade.load_texture("tank.png")
-        self.health = 10
-        self.speed = 90
+        self.health = 15
+        self.speed = 120
         self.distance_to_goal = 3100
 
 # A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
-    def __init__(self, x, y, dx, dy, damage):
+    def __init__(self, x, y, dx, dy, damage, scale=1):
         super().__init__("bullet.png")
         self.center_x = x
         self.center_y = y
-        self.scale = 1
+        self.scale = scale
         self.velocity_x = dx
         self.velocity_y = dy
         self.damage = damage
@@ -174,6 +179,7 @@ class TowerDefense(arcade.Window):
         self.selected_tower = None
         self.upgrade_menu_open = False
         self.game_state = "menu"
+        self.high_score = self.load_high_score()
 
         # This is the picture that shows where a tower can go.
         self.preview = arcade.Sprite("place.png")
@@ -201,6 +207,38 @@ class TowerDefense(arcade.Window):
 
     def calculate_round_enemy_count(self):
         return 3 + self.round_number * 2
+
+    def get_high_score_path(self):
+        if platform.system() == "Windows":
+            base_dir = os.environ.get("APPDATA", os.path.expanduser("~"))
+        elif platform.system() == "Darwin":
+            base_dir = os.path.expanduser("~/Library/Application Support")
+        else:
+            base_dir = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+
+        os.makedirs(base_dir, exist_ok=True)
+        return os.path.join(base_dir, "circle_vs_square_td", "high_score.txt")
+
+    def load_high_score(self):
+        score_path = self.get_high_score_path()
+        if not os.path.exists(score_path):
+            return 0
+        try:
+            with open(score_path, "r", encoding="utf-8") as handle:
+                return max(0, int(handle.read().strip()))
+        except (ValueError, OSError):
+            return 0
+
+    def save_high_score(self):
+        score_path = self.get_high_score_path()
+        os.makedirs(os.path.dirname(score_path), exist_ok=True)
+        with open(score_path, "w", encoding="utf-8") as handle:
+            handle.write(str(self.high_score))
+
+    def update_high_score(self):
+        if self.round_number > self.high_score:
+            self.high_score = self.round_number
+            self.save_high_score()
 
     def start_round(self):
         self.spawned_this_round = 0
@@ -300,6 +338,22 @@ class TowerDefense(arcade.Window):
         else:
             self.preview.texture = arcade.load_texture("place.png")
 
+    def is_position_valid_for_tower(self, x, y, tower_type=None, sprite=None):
+        if sprite is None:
+            sprite = Tower(x, y, tower_type=tower_type or self.placing_tower_type)
+
+        if arcade.check_for_collision_with_list(sprite, self.paths):
+            return False
+        if arcade.check_for_collision_with_list(sprite, self.towers):
+            return False
+
+        clearance = 95 if (tower_type or self.placing_tower_type) == "cannon" else 70
+        for path in self.paths:
+            if math.hypot(x - path.center_x, y - path.center_y) < clearance:
+                return False
+
+        return True
+
     def get_upgrade_button_rect(self):
         if self.selected_tower and self.selected_tower.center_x > self.width / 2:
             return 20, 180, 260, 80
@@ -369,6 +423,15 @@ class TowerDefense(arcade.Window):
                 anchor_x="center",
                 anchor_y="center",
             )
+            arcade.draw_text(
+                f"High Score: Round {self.high_score}",
+                self.width / 8,
+                self.height * 0.95,
+                arcade.color.GOLD,
+                28,
+                anchor_x="center",
+                anchor_y="center",
+            )
             return
 
         self.paths.draw()
@@ -383,17 +446,22 @@ class TowerDefense(arcade.Window):
 
         #totally not copying the ui from bloons tower defense lol
         if self.placing_mode:
+            if self.placing_tower_type == "cannon":
+                self.preview.scale = 1.25
+            else:
+                self.preview.scale = 1
             self.button.texture = self.button_exit_texture if self.placing_tower_type == "basic" else self.button_texture
             self.cannon_button.texture = self.button_exit_texture if self.placing_tower_type == "cannon" else self.cannon_button_texture
             self.button.position = (75, 75)
             self.cannon_button.position = (225, 75)
             tower_cost = 400 if self.placing_tower_type == "cannon" else 250
-            if arcade.check_for_collision_with_list(self.preview, self.paths) or self.money < tower_cost:
+            if self.money < tower_cost:
                 self.preview.color = arcade.color.RED
-            elif arcade.check_for_collision_with_list(self.preview, self.towers):
+            elif not self.is_position_valid_for_tower(self.preview.center_x, self.preview.center_y, tower_type=self.placing_tower_type):
                 self.preview.color = arcade.color.RED
             else:
                 self.preview.color = arcade.color.WHITE
+            # else: sudo rm -rf /
             arcade.draw_sprite(self.preview)
             arcade.draw_circle_filled(self.preview.center_x, self.preview.center_y, 220 if self.placing_tower_type == "cannon" else 200, self.transparent_color)
         else:
@@ -588,11 +656,7 @@ class TowerDefense(arcade.Window):
             tower_cost = 400 if self.placing_tower_type == "cannon" else 250
             if self.money >= tower_cost:
                 tower = Tower(x, y, tower_type=self.placing_tower_type)
-                if arcade.check_for_collision_with_list(tower, self.paths):
-                    pass
-                elif arcade.check_for_collision_with_list(tower, self.towers):
-                    pass
-                else:
+                if self.is_position_valid_for_tower(x, y, tower_type=self.placing_tower_type, sprite=tower):
                     self.towers.append(tower)
                     self.money -= tower_cost
                     self.coin_playback = COIN_SOUND.play()
@@ -674,6 +738,7 @@ class TowerDefense(arcade.Window):
         for enemy in list(self.enemies):
             enemy.update(delta_time)
             if enemy.current_target >= len(enemy.path_points):
+                self.update_high_score()
                 self.enemies.remove(enemy)
                 self.reset_game()
                 return
@@ -705,12 +770,14 @@ class TowerDefense(arcade.Window):
                         direction_x = dx / distance
                         direction_y = dy / distance
                         bullet_speed = 640
+                        bullet_scale = 1.5 if tower.tower_type == "cannon" else 1
                         bullet = Bullet(
                             tower.center_x,
                             tower.center_y,
                             direction_x * bullet_speed,
                             direction_y * bullet_speed,
                             tower.damage,
+                            scale=bullet_scale,
                         )
                         self.bullets.append(bullet)
 

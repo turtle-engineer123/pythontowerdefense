@@ -136,6 +136,14 @@ class TankEnemy(Enemy):
         self.speed = 120
         self.distance_to_goal = 3100
 
+class CoolEnemy(Enemy):
+    def __init__(self, path_points):
+        super().__init__(path_points)
+        self.texture = arcade.load_texture("idkwhattonamethis.png")
+        self.health = 7
+        self.speed = 200
+        self.distance_to_goal = 3100
+
 # A bullet is a little flying thing that comes from the tower.
 class Bullet(arcade.Sprite):
     def __init__(self, x, y, dx, dy, damage, scale=1):
@@ -245,8 +253,8 @@ class TowerDefense(arcade.Window):
         self.enemies_to_spawn = self.calculate_round_enemy_count()
         self.spawn_timer = 0.0
         self.round_spawn_interval = max(0.1, 1.5 - (self.round_number - 1) * 0.15)
-        if self.round_number >= 5:
-            self.money_given_per_enemy = max(10, 50 - (self.round_number - 5) * 2)
+        if self.round_number >= 20:
+            self.money_given_per_enemy = max(10, 50 - (self.round_number - 20) * 2)
 
 
 
@@ -356,13 +364,13 @@ class TowerDefense(arcade.Window):
 
     def get_upgrade_button_rect(self):
         if self.selected_tower and self.selected_tower.center_x > self.width / 2:
-            return 20, 180, 260, 80
-        return self.width - 280, 180, 260, 80
+            return 20, 230, 260, 80
+        return self.width - 280, 230, 260, 80
 
     def get_sell_button_rect(self):
         if self.selected_tower and self.selected_tower.center_x > self.width / 2:
-            return 20, 80, 260, 80
-        return self.width - 280, 80, 260, 80
+            return 20, 140, 260, 80
+        return self.width - 280, 140, 260, 80
 
     def get_menu_button_rect(self):
         button_width = 360
@@ -711,6 +719,8 @@ class TowerDefense(arcade.Window):
             enemy = TankEnemy(self.path_positions)
         elif self.round_number >= 5 and self.spawned_this_round % 5 == 0:
             enemy = SpeedyEnemy(self.path_positions)
+        elif self.round_number >= 7 and self.spawned_this_round % 3 == 0:
+            enemy = CoolEnemy(self.path_positions)
         else:
             enemy = Enemy(self.path_positions)
         # Scale enemy health with the current round (makes later rounds harder)

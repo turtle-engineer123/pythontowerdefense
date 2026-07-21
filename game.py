@@ -6,11 +6,15 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# This is a tower defense game.
+# Players place towers to stop enemies before they reach the end of the path.
+
 # A tower sits on the ground and waits for enemies.
 # It can shoot the bad guys when they get close.
 class Tower(arcade.Sprite):
     def __init__(self, x, y, tower_type="basic"):
         self.tower_type = tower_type
+        # Different tower types cost different money and shoot in different ways.
         if tower_type == "cannon":
             initial_texture = "cannon-1.png"
             self.texture_files = ["cannon-1.png", "cannon-2.png", "cannon-3.png", "cannon-4.png"]
@@ -119,6 +123,8 @@ class Enemy(arcade.Sprite):
 
         self.distance_to_goal = self.get_distance_to_goal()
 
+# Some enemies are special.
+# Speedy ones are fast, tanks are tough, and cool enemies have a middle balance.
 class SpeedyEnemy(Enemy):
     def __init__(self, path_points):
         super().__init__(path_points)
@@ -189,7 +195,8 @@ class TowerDefense(arcade.Window):
         self.game_state = "menu"
         self.high_score = self.load_high_score()
 
-        # This is the picture that shows where a tower can go.
+        # The game can be in a menu, in a round, or showing an upgrade window.
+        # These values help the game know what to draw and what to do next.
         self.preview = arcade.Sprite("place.png")
         self.preview.scale = 1
         self.preview.alpha = 120
@@ -260,6 +267,7 @@ class TowerDefense(arcade.Window):
 
 
     def reset_game(self):
+        # This starts a fresh game map and resets the player money and round state.
         self.paths = arcade.SpriteList()
         self.towers = arcade.SpriteList()
         self.enemies = arcade.SpriteList()
@@ -347,6 +355,8 @@ class TowerDefense(arcade.Window):
             self.preview.texture = arcade.load_texture("place.png")
 
     def is_position_valid_for_tower(self, x, y, tower_type=None, sprite=None):
+        # This checks whether the chosen spot is safe for a new tower.
+        # A tower cannot be placed on the path or too close to other towers.
         if sprite is None:
             sprite = Tower(x, y, tower_type=tower_type or self.placing_tower_type)
 
@@ -387,7 +397,8 @@ class TowerDefense(arcade.Window):
         left, bottom, width, height = self.get_sell_button_rect()
         return left <= x <= left + width and bottom <= y <= bottom + height
 
-    # Draw all the game pieces on the screen.
+    # Draw everything that the player should see.
+    # The screen changes depending on the menu, the game play, or the upgrade menu.
     def on_draw(self):
         self.clear()
 
@@ -595,7 +606,8 @@ class TowerDefense(arcade.Window):
                 self.hovered_tower = tower
                 break
 
-    # When the mouse is clicked, either start/stop placing a tower or place one.
+    # Mouse clicks do different things depending on what the player is doing.
+    # They can start placing a tower, open an upgrade menu, or buy and sell towers.
     def on_mouse_press(self, x, y, button, modifiers):
         if self.game_state == "menu":
             if button == arcade.MOUSE_BUTTON_LEFT:
@@ -679,6 +691,7 @@ class TowerDefense(arcade.Window):
                 self.game_state = "playing"
 
     # Find the enemy in range that is closest to the goal.
+    # Towers care more about enemies that are almost at the end than enemies that are far away.
     def get_nearest_enemy(self, sprite):
         if len(self.enemies) == 0:
             return None
@@ -712,6 +725,7 @@ class TowerDefense(arcade.Window):
 
 
     # Create a new enemy and send it onto the path.
+    # Later rounds may spawn faster or tougher enemies.
     def spawn_enemy(self):
         if not self.path_positions:
             return
@@ -730,7 +744,8 @@ class TowerDefense(arcade.Window):
         self.enemies.append(enemy)
         self.spawned_this_round += 1
 
-    # Update the whole game. This runs many times every second.
+    # Update the whole game many times every second.
+    # This moves enemies, fires towers, checks for hits, and starts the next round.
     def on_update(self, delta_time):
         if self.game_state == "menu":
             return
@@ -744,7 +759,7 @@ class TowerDefense(arcade.Window):
             self.round_number += 1
             self.start_round()
 
-        # Move each enemy and remove it when it reaches the end.
+        # Move each enemy and end the game if one reaches the end of the path.
         for enemy in list(self.enemies):
             enemy.update(delta_time)
             if enemy.current_target >= len(enemy.path_points):
@@ -764,7 +779,7 @@ class TowerDefense(arcade.Window):
             ):
                 self.bullets.remove(bullet)
 
-        # Make each tower look for an enemy and shoot if it can.
+        # Make each tower look for a target and shoot if it can.
         for tower in self.towers:
             target = self.get_nearest_enemy(tower)
             if target:

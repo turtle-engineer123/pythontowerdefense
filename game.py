@@ -79,8 +79,9 @@ class Enemy(arcade.Sprite):
         super().__init__("enemy.png")
         self.path_points = path_points
         self.current_target = 1
+        self.speed_multiplier = 1.0
         self.health = 5
-        self.speed = 180
+        self.speed = 180 * self.speed_multiplier  # pixels per second
         self.center_x, self.center_y = path_points[0]
         self.distance_to_goal = self.get_distance_to_goal()
 
@@ -130,7 +131,7 @@ class SpeedyEnemy(Enemy):
         super().__init__(path_points)
         self.texture = arcade.load_texture("speedy.png")
         self.health = 3
-        self.speed = 270
+        self.speed = 180 * self.speed_multiplier
         self.distance_to_goal = 3100
 
 
@@ -139,7 +140,7 @@ class TankEnemy(Enemy):
         super().__init__(path_points)
         self.texture = arcade.load_texture("tank.png")
         self.health = 15
-        self.speed = 120
+        self.speed = 120 * self.speed_multiplier
         self.distance_to_goal = 3100
 
 class CoolEnemy(Enemy):
@@ -147,7 +148,7 @@ class CoolEnemy(Enemy):
         super().__init__(path_points)
         self.texture = arcade.load_texture("idkwhattonamethis.png")
         self.health = 7
-        self.speed = 200
+        self.speed = 200 * self.speed_multiplier
         self.distance_to_goal = 3100
 
 # A bullet is a little flying thing that comes from the tower.
@@ -193,6 +194,7 @@ class TowerDefense(arcade.Window):
         self.selected_tower = None
         self.upgrade_menu_open = False
         self.game_state = "menu"
+        self.difficulty = "Easy"  # Default difficulty levels
         self.high_score = self.load_high_score()
 
         # The game can be in a menu, in a round, or showing an upgrade window.
@@ -221,7 +223,12 @@ class TowerDefense(arcade.Window):
         self.reset_game()
 
     def calculate_round_enemy_count(self):
-        return 3 + self.round_number * 2
+        if self.difficulty == "Easy":
+            return 3 + self.round_number * 2
+        elif self.difficulty == "Medium":
+            return 4 + self.round_number * 3
+        else:
+            return 6 + self.round_number * 4
 
     def get_high_score_path(self):
         if platform.system() == "Windows":
@@ -232,17 +239,21 @@ class TowerDefense(arcade.Window):
             base_dir = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
 
         os.makedirs(base_dir, exist_ok=True)
-        return os.path.join(base_dir, "circle_vs_square_td", "high_score.txt")
+        return os.path.join(base_dir, "circle_vs_square_td", f"high_score_{self.difficulty.lower()}.txt")
 
     def load_high_score(self):
         score_path = self.get_high_score_path()
+        print(f"DEBUG: Loading high score from {score_path}")
         if not os.path.exists(score_path):
-            return 0
+            self.high_score = 0
+            return self.high_score
         try:
             with open(score_path, "r", encoding="utf-8") as handle:
-                return max(0, int(handle.read().strip()))
+                self.high_score = max(0, int(handle.read().strip()))
+                return self.high_score
         except (ValueError, OSError):
-            return 0
+            self.high_score = 0
+            return self.high_score
 
     def save_high_score(self):
         score_path = self.get_high_score_path()
@@ -251,6 +262,7 @@ class TowerDefense(arcade.Window):
             handle.write(str(self.high_score))
 
     def update_high_score(self):
+        print(f"DEBUG: Current round: {self.round_number}, High score: {self.high_score}")
         if self.round_number > self.high_score:
             self.high_score = self.round_number
             self.save_high_score()
@@ -259,9 +271,22 @@ class TowerDefense(arcade.Window):
         self.spawned_this_round = 0
         self.enemies_to_spawn = self.calculate_round_enemy_count()
         self.spawn_timer = 0.0
-        self.round_spawn_interval = max(0.1, 1.5 - (self.round_number - 1) * 0.15)
-        if self.round_number >= 20:
-            self.money_given_per_enemy = max(10, 50 - (self.round_number - 20) * 2)
+        self.round_spawn_interval = max(0.05, 1.5 - (self.round_number - 1) * 0.15)
+        if self.difficulty == "Easy":
+            if self.round_number >= 20:
+                self.money_given_per_enemy = max(10, 50 - (self.round_number - 20) * 2)
+            elif self.round_number >= 10:
+                self.speed_multiplier = 1.0 + (self.round_number - 10) * 0.1
+        elif self.difficulty == "Medium":
+            if self.round_number >= 15:
+                self.money_given_per_enemy = max(7, 50 - (self.round_number - 15) * 2)
+            elif self.round_number >= 7:
+                self.speed_multiplier = 1.0 + (self.round_number - 7) * 0.1
+        else:  # Hard
+            if self.round_number >= 10:
+                self.money_given_per_enemy = max(5, 50 - (self.round_number - 10) * 2)
+            elif self.round_number >= 5:
+                self.speed_multiplier = 1.0 + (self.round_number - 5) * 0.1
 
 
 
@@ -286,6 +311,7 @@ class TowerDefense(arcade.Window):
         self.selected_tower = None
         self.upgrade_menu_open = False
         self.hovered_tower = None
+        self.difficulty = self.difficulty  # Keep the selected difficulty level
         self.start_round()
 
         # This makes one piece of the path for enemies to walk on.
@@ -397,6 +423,12 @@ class TowerDefense(arcade.Window):
         left, bottom, width, height = self.get_sell_button_rect()
         return left <= x <= left + width and bottom <= y <= bottom + height
 
+    def get_difficulty_button_rect(self):
+        button_width = 360
+        button_height = 60
+        left = (self.width - button_width) / 2
+        bottom = (self.height - button_height) / 2 - 280
+        return left, bottom, button_width, button_height
     # Draw everything that the player should see.
     # The screen changes depending on the menu, the game play, or the upgrade menu.
     def on_draw(self):
@@ -443,15 +475,29 @@ class TowerDefense(arcade.Window):
                 anchor_y="center",
             )
             arcade.draw_text(
-                f"High Score: Round {self.high_score}",
-                self.width / 8,
+                f"High Score for {self.difficulty}: Round {self.high_score}",
+                self.width / 64,
                 self.height * 0.95,
                 arcade.color.GOLD,
                 28,
+                anchor_x="left",
+                anchor_y="center",
+            )
+
+            left, bottom, width, height = self.get_difficulty_button_rect()
+            arcade.draw_lrbt_rectangle_filled(left, left + width, bottom, bottom + height, arcade.color.DARK_PASTEL_RED)
+            arcade.draw_lrbt_rectangle_outline(left, left + width, bottom, bottom + height, arcade.color.WHITE, 3)
+            arcade.draw_text(
+                f"Difficulty: {self.difficulty}", 
+                self.width / 2,
+                bottom + height / 2,
+                arcade.color.WHITE,
+                20,
                 anchor_x="center",
                 anchor_y="center",
             )
             return
+        
 
         self.paths.draw()
         self.enemies.draw()
@@ -615,6 +661,16 @@ class TowerDefense(arcade.Window):
                 if left <= x <= left + width and bottom <= y <= bottom + height:
                     self.reset_game()
                     self.game_state = "playing"
+                left, bottom, width, height = self.get_difficulty_button_rect()
+                if left <= x <= left + width and bottom <= y <= bottom + height:
+                    if self.difficulty == "Easy":
+                        self.difficulty = "Medium"
+                    elif self.difficulty == "Medium":
+                        self.difficulty = "Hard"
+                    else:
+                        self.difficulty = "Easy"
+                    self.load_high_score()
+
             return
 
         COIN_SOUND = arcade.load_sound("ksjsbwuil-cash-register-1-513922.mp3")

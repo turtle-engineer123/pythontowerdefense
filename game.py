@@ -6,6 +6,12 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# Arcade resolves assets relative to the current working directory, which can
+# differ when the game is launched from VS Code, PowerShell, or a debugger.
+# Make sure the game folder is the working directory so all PNG/SFX files load.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
+
 # This is a tower defense game.
 # Players place towers to stop enemies before they reach the end of the path.
 
@@ -311,7 +317,13 @@ class TowerDefense(arcade.Window):
         self.selected_tower = None
         self.upgrade_menu_open = False
         self.hovered_tower = None
-        self.difficulty = self.difficulty  # Keep the selected difficulty level
+        self.difficulty = self.difficulty 
+        if self.difficulty == "Easy":
+            self.health = 25
+        elif self.difficulty == "Medium":
+            self.health = 10
+        else:  # Hard
+            self.health = 1 
         self.start_round()
 
         # This makes one piece of the path for enemies to walk on.
@@ -640,6 +652,15 @@ class TowerDefense(arcade.Window):
             anchor_x="center",
             anchor_y="center",
         )
+        arcade.draw_text(
+            f"Health: {self.health}",
+            self.width // 2,
+            self.height - 30,
+            arcade.color.RED,
+            20,
+            anchor_x="center",
+            anchor_y="center",
+            )
 
     # Move the preview helper with the mouse if we are placing a tower.
     def on_mouse_motion(self, x, y, dx, dy):
@@ -819,9 +840,12 @@ class TowerDefense(arcade.Window):
         for enemy in list(self.enemies):
             enemy.update(delta_time)
             if enemy.current_target >= len(enemy.path_points):
-                self.update_high_score()
                 self.enemies.remove(enemy)
-                self.reset_game()
+                if self.health > 0:
+                    self.health -= 1
+                else:
+                    self.update_high_score()
+                    self.reset_game()
                 return
 
         # Move bullets and remove ones that fly off the screen.
